@@ -11,3 +11,9 @@ CREATE TABLE IF NOT EXISTS articles (
 
 CREATE INDEX idx_articles_author_id ON articles(author_id);
 CREATE INDEX idx_articles_published ON articles(published);
+
+-- SELECT last_value FROM articles_id_seq;
+
+-- ALTER SEQUENCE articles_id_seq RESTART WITH 1;
+
+-- SELECT setval('articles_id_seq', COALESCE((SELECT MAX(id) FROM articles), 1));

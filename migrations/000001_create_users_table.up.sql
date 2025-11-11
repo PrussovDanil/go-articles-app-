@@ -7,3 +7,8 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE INDEX idx_users_email ON users(email);
+
+-- SELECT last_value FROM users_id_seq;
+
+-- -- Сбросить на 1
+-- ALTER SEQUENCE users_id_seq RESTART WITH 1;

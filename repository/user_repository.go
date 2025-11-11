@@ -2,147 +2,82 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"go-articles-app/models"
-	"strings"
-	"time"
+
+	"gorm.io/gorm"
 )
 
 type UserRepository struct {
-	db *sql.DB
+	db *gorm.DB
 }
 
-func NewUserRepository(db *sql.DB) *UserRepository {
+func NewUserRepository(db *gorm.DB) *UserRepository {
 	return &UserRepository{db: db}
 }
 
 func (r *UserRepository) Create(ctx context.Context, user *models.User) error {
-	query := `INSERT INTO users (email, name, created_at, updated_at)
-	VALUES ($1, $2, $3, $4)
-	RETURNING id
-	`
+	result := r.db.WithContext(ctx).Create(user)
 
-	now := time.Now()
-	err := r.db.QueryRowContext(
-		ctx,
-		query,
-		user.Email,
-		user.Name,
-		now,
-		now,
-	).Scan(&user.ID)
-
-	if err != nil {
-		if strings.Contains(err.Error(), "duplicate key") {
-			return fmt.Errorf("user with email %s already exists", user.Email)
+	if result.Error != nil {
+		if isDuplicateKeyError(result.Error) {
+			return fmt.Errorf("user with email %s already exist", user.Email)
 		}
-		return fmt.Errorf("failed to create user: %w", err)
+		return fmt.Errorf("failed to create user: %w", result.Error)
 	}
-
-	user.CreatedAt = now
-	user.UpdatedAt = now
 	return nil
 }
 
-func (r *UserRepository) GetByID(ctx context.Context, id int) (*models.User, error) {
-	query := `
-		SELECT id, email, name, created_at, updated_at
-		FROM users
-		WHERE id = $1
-	`
+func (r *UserRepository) GetByID(ctx context.Context, id uint) (*models.User, error) {
+	var user models.User
 
-	user := &models.User{}
-	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&user.ID,
-		&user.Email,
-		&user.Name,
-		&user.CreatedAt,
-		&user.UpdatedAt,
-	)
+	result := r.db.WithContext(ctx).First(&user, id)
 
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("article not found")
+	if result.Error == gorm.ErrRecordNotFound {
+		return nil, fmt.Errorf("user not found")
 	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to get article: %w", err)
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to get user: %w", result.Error)
 	}
 
-	return user, nil
+	return &user, nil
 }
 
 func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*models.User, error) {
-	query := `SELECT id, email, name, created_at, updated_at FROM users WHERE email = $1`
-	user := &models.User{}
+	var user models.User
 
-	err := r.db.QueryRowContext(ctx, query, email).Scan(
-		&user.ID,
-		&user.Email,
-		&user.Name,
-		&user.CreatedAt,
-		&user.UpdatedAt,
-	)
+	result := r.db.WithContext(ctx).Where("email = ?", email).First(&user)
 
-	if err == sql.ErrNoRows {
-		return nil, nil 
+	if result.Error == gorm.ErrRecordNotFound {
+		return nil, nil
 	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user by email: %w", err)
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to get user: %w", result.Error)
 	}
 
-	return user, nil
+	return &user, nil
 }
 
-func (r *UserRepository) GetAll(ctx context.Context) ([]*models.User, error) {
-	query := `SELECT id, email, name, created_at, updated_at FROM users ORDER BY id`
+func (r *UserRepository) GetAll(ctx context.Context) ([]models.User, error) {
+	var users []models.User
 
-	rows, err := r.db.QueryContext(ctx, query)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query users: %w", err)
-	}
-	defer rows.Close()
+	result := r.db.WithContext(ctx).Order("id").Find(&users)
 
-	var users []*models.User
-	for rows.Next() {
-		user := &models.User{}
-		err := rows.Scan(
-			&user.ID,
-			&user.Email,
-			&user.Name,
-			&user.CreatedAt,
-			&user.UpdatedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to query users: %w", err)
-		}
-
-		users = append(users, user)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("rows iteration error: %w", err)
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to get users: %w", result.Error)
 	}
 
 	return users, nil
 }
 
 func (r *UserRepository) Update(ctx context.Context, user *models.User) error {
-	query := `UPDATE users SET email = $1, name = $2, updated_at = $3 WHERE id= $4`
+	result := r.db.WithContext(ctx).Save(user)
 
-	user.UpdatedAt = time.Now()
-
-	result, err := r.db.ExecContext(ctx, query, user.Email, user.Name, user.UpdatedAt, user.ID)
-
-	if err != nil {
-		return fmt.Errorf("failed to update user: %w", err)
+	if result.Error != nil {
+		return fmt.Errorf("failed to update user:%w", result.Error)
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-
-	if rowsAffected == 0 {
+	if result.RowsAffected == 0 {
 		return fmt.Errorf("user not found")
 	}
 
@@ -150,22 +85,26 @@ func (r *UserRepository) Update(ctx context.Context, user *models.User) error {
 }
 
 func (r *UserRepository) Delete(ctx context.Context, id int) error {
-	query := `DELETE FROM users WHERE id = $1`
+	result := r.db.WithContext(ctx).Delete(&models.User{}, id)
 
-	result, err := r.db.ExecContext(ctx, query, id)
-
-	if err != nil {
-		return fmt.Errorf("failed to delete user: %w", err)
+	if result.Error != nil {
+		return fmt.Errorf("failed to delete user: %w", result.Error)
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-
-	if rowsAffected == 0 {
+	if result.RowsAffected == 0 {
 		return fmt.Errorf("user not found")
 	}
 
 	return nil
+}
+
+func isDuplicateKeyError(err error) bool {
+	return err != nil && (err.Error() == "ERROR: duplicate key value violates unique constraint" ||
+		contains(err.Error(), "duplicate key") ||
+		contains(err.Error(), "23505"))
+
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && s[:len(substr)] == substr
 }

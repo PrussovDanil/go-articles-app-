@@ -2,186 +2,74 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"go-articles-app/models"
-	"time"
+
+	"gorm.io/gorm"
 )
 
 type ArticleRepository struct {
-	db *sql.DB
+	db *gorm.DB
 }
 
-func NewArticleRepository(db *sql.DB) *ArticleRepository {
+func NewArticleRepository(db *gorm.DB) *ArticleRepository {
 	return &ArticleRepository{db: db}
 }
 
 func (r *ArticleRepository) Create(ctx context.Context, article *models.Article) error {
-	query := `
-		INSERT INTO articles (title, content, author_id)
-		VALUES ($1, $2, $3)
-		RETURNING id, published, views, created_at, updated_at
-	`
-	err := r.db.QueryRowContext(
-		ctx,
-		query,
-		article.Title,
-		article.Content,
-		article.AuthorID,
-		article.Published,
-		0,
-		article.CreatedAt,
-		article.UpdatedAt,
-	).Scan(&article.ID,
-		&article.Published,
-		&article.Views,
-		&article.CreatedAt,
-		&article.UpdatedAt,
-	)
-
-	if err != nil {
-		return fmt.Errorf("failed to create article: %w", err)
-	}
-	return nil
+	result := r.db.WithContext(ctx).Create(article)
+	return result.Error
 }
 
-func (r *ArticleRepository) GetByID(ctx context.Context, id int) (*models.Article, error) {
-	query := `SELECT id, title, content, author_id, published, views, created_at, updated_at FROM articles WHERE id = $1`
+func (r *ArticleRepository) GetByID(ctx context.Context, id uint) (*models.Article, error) {
+	var article models.Article
 
-	article := &models.Article{}
-	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&article.ID,
-		&article.Title,
-		&article.Content,
-		&article.AuthorID,
-		&article.Published,
-		&article.Views,
-		&article.CreatedAt,
-		&article.UpdatedAt,
-	)
+	result := r.db.WithContext(ctx).Preload("Author").First(&article, id)
 
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("user not found")
+	if result.Error == gorm.ErrRecordNotFound {
+		return nil, fmt.Errorf("article not found")
 	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user: %w", err)
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to get article: %w", result.Error)
 	}
 
-	return article, nil
+	return &article, nil
 }
 
-func (r *ArticleRepository) GetByAuthorID(ctx context.Context, authorID int) ([]*models.Article, error) {
-	query := `
-		SELECT id, title, content, author_id, published, views, created_at, updated_at
-		FROM articles 
-		WHERE author_id = $1
-		ORDER BY created_at DESC
-	`
-	rows, err := r.db.QueryContext(ctx, query, authorID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query articles: %w", err)
-	}
-	defer rows.Close()
+func (r *ArticleRepository) GetByAuthorID(ctx context.Context, authorID uint) ([]models.Article, error) {
+	var articles []models.Article
 
-	var articles []*models.Article
-	for rows.Next() {
-		article := &models.Article{}
-		err := rows.Scan(
-			&article.ID,
-			&article.Title,
-			&article.Content,
-			&article.AuthorID,
-			&article.Published,
-			&article.Views,
-			&article.CreatedAt,
-			&article.UpdatedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to query articles: %w", err)
-		}
-		articles = append(articles, article)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("rows iteration error: %w", err)
+	result := r.db.WithContext(ctx).Where("author_id = ?", authorID).Order("created_at DESC").Find(&articles)
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to get articles: %w", result.Error)
 	}
 
 	return articles, nil
 }
 
-func (r *ArticleRepository) GetPublished(ctx context.Context) ([]*models.Article, error) {
-	query := `
-		SELECT id, title, content, author_id, published, views, created_at, updated_at
-		FROM articles
-		WHERE published = true
-		ORDER BY created_at DESC
-	`
+func (r *ArticleRepository) GetPublished(ctx context.Context) ([]models.Article, error) {
+	var articles []models.Article
 
-	rows, err := r.db.QueryContext(ctx, query)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query articles: %w", err)
+	result := r.db.WithContext(ctx).
+		Where("publish = ?", true).
+		Preload("Author").
+		Order("created_at DESC").
+		Find(&articles)
+
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to get published articles: %w", result.Error)
 	}
-	defer rows.Close()
-
-	var articles []*models.Article
-	for rows.Next() {
-		article := &models.Article{}
-		err := rows.Scan(
-			&article.ID,
-			&article.Title,
-			&article.Content,
-			&article.AuthorID,
-			&article.Published,
-			&article.Views,
-			&article.CreatedAt,
-			&article.UpdatedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan article: %w", err)
-
-		}
-		articles = append(articles, article)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("rows iteration error: %w", err)
-	}
-
 	return articles, nil
 }
 
 func (r *ArticleRepository) Update(ctx context.Context, article *models.Article) error {
-	query := `UPDATE articles SET 
-		title = $1, 
-		content = $2,
-		author_id = $3,
-		published = $4,
-		updated_at = $5
-		WHERE id = $6
-	`
+	result := r.db.WithContext(ctx).Save(article)
 
-	article.UpdatedAt = time.Now()
-	result, err := r.db.ExecContext(
-		ctx,
-		query,
-		article.Title,
-		article.Content,
-		article.AuthorID,
-		article.Published,
-		article.UpdatedAt,
-		article.ID,
-	)
-
-	if err != nil {
-		return fmt.Errorf("failed to update article: %w", err)
+	if result.Error != nil {
+		return fmt.Errorf("failed to update article: %w", result.Error)
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-
-	if rowsAffected == 0 {
+	if result.RowsAffected == 0 {
 		return fmt.Errorf("article not found")
 	}
 
@@ -189,20 +77,13 @@ func (r *ArticleRepository) Update(ctx context.Context, article *models.Article)
 }
 
 func (r *ArticleRepository) Delete(ctx context.Context, id int) error {
-	query := `DELETE FROM articles WHERE id = $1`
+	result := r.db.WithContext(ctx).Delete(&models.Article{}, id)
 
-	result, err := r.db.ExecContext(ctx, query, id)
-
-	if err != nil {
-		return fmt.Errorf("failed to delete article: %w", err)
+	if result.Error != nil {
+		return fmt.Errorf("failed to delete article: %w", result.Error)
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-
-	if rowsAffected == 0 {
+	if result.RowsAffected == 0 {
 		return fmt.Errorf("article not found")
 	}
 
@@ -210,170 +91,74 @@ func (r *ArticleRepository) Delete(ctx context.Context, id int) error {
 }
 
 func (r *ArticleRepository) Publish(ctx context.Context, id int) error {
-	query := `UPDATE articles SET published = true, updated_at = NOW() WHERE id = $1 AND published = false`
-	result, err := r.db.ExecContext(ctx, query, id)
+	result := r.db.WithContext(ctx).
+		Model(&models.Article{}).
+		Where("id = ? AND published = &", id, false).
+		Update("published", true)
 
-	if err != nil {
-		return fmt.Errorf("failed to publish article: %w", err)
+	if result.Error != nil {
+		return fmt.Errorf("failed to publish article: %w", result.Error)
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-
-	if rowsAffected == 0 {
-		return fmt.Errorf("article not found")
-	}
-
-	if rowsAffected == 0 {
-		var exists bool
-		r.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM articles WHERE id = $1)", id).Scan(&exists)
-		if !exists {
-			return fmt.Errorf("article not found")
-		}
-		return nil
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("article not found or already published")
 	}
 
 	return nil
 }
 
 func (r *ArticleRepository) IncrementViews(ctx context.Context, id int) error {
-	query := `UPDATE articles SET views = views + 1 WHERE id = $1`
+	result := r.db.WithContext(ctx).
+		Model(&models.Article{}).
+		Where("id = ?", id).
+		UpdateColumn("views", gorm.Expr("views + 1"))
 
-	result, err := r.db.ExecContext(ctx, query, id)
-
-	if err != nil {
-		return fmt.Errorf("failed to increment views: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-
-	if rowsAffected == 0 {
-		return fmt.Errorf("article not found")
+	if result.Error != nil {
+		return fmt.Errorf("failed to increment views: %w", result.Error)
 	}
 
 	return nil
 }
 
-func (r *ArticleRepository) CreateArticleWithAuthor(
-	ctx context.Context,
-	userName, userEmail, articleTitle, articleContent string,
-) (*models.User, *models.Article, error) {
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, nil, fmt.Errorf("error: %w", err)
-	}
+// func (r *ArticleRepository) CreateArticleWithAuthor(
+// 	ctx context.Context,
+// 	userName, userEmail, articleTitle, articleContent string,
+// ) (*models.User, *models.Article, error) {
 
-	defer func() {
-		if p := recover(); p != nil {
-			tx.Rollback()
-			panic(p)
-		} else if err != nil {
-			tx.Rollback()
-		}
-	}()
+// 	var user models.User
+// 	var article models.Article
 
-	var user models.User
-	queryUser := `SELECT id, email, name, created_at, updated_at FROM users WHERE email = $1`
-	err = tx.QueryRowContext(ctx, queryUser, userEmail).Scan(&user.ID, &user.Email, &user.Name, &user.CreatedAt, &user.UpdatedAt)
+// 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+// 		result := tx.Where("email = ?", userEmail).First(&user)
 
-	if err == sql.ErrNoRows {
+// 		if result.Error == gorm.ErrRecordNotFound {
+// 			user = models.User{
+// 				Email: userEmail,
+// 				Name:  userName,
+// 			}
+// 			if err := tx.Create(&user).Error; err != nil {
+// 				return fmt.Errorf("create user: %w", err)
+// 			}
+// 		} else if result.Error != nil {
+// 			// Другая ошибка при поиске
+// 			return fmt.Errorf("check user: %w", result.Error)
+// 		}
 
-		err = tx.QueryRowContext(
-			ctx,
-			`INSERT INTO users (email, name, created_at, updated_at)
-			VALUES ($1, $2, NOW(), NOW())
-			RETURNING id
-			`, userEmail, userName,
-		).Scan(&user.ID)
+// 		article = models.Article{
+// 			Title:     articleTitle,
+// 			Content:   articleContent,
+// 			AuthorID:  user.ID,
+// 			Published: false,
+// 			Views:     0,
+// 		}
+// 		if err := tx.Create(&article).Error; err != nil {
+// 			return fmt.Errorf("create article: %w", err)
+// 		}
+// 		return nil
+// 	})
+// 	if err != nil {
+// 		return nil, nil, err
+// 	}
 
-		if err != nil {
-			return nil, nil, fmt.Errorf("create user: %w", err)
-		}
-
-		user.Name = userName
-		user.Email = userEmail
-	} else if err != nil {
-
-		return nil, nil, fmt.Errorf("check user: %w", err)
-	}
-
-	var article models.Article
-	err = tx.QueryRowContext(
-		ctx,
-		`INSERT INTO articles (title, content, author_id, created_at, updated_at)
-		  VALUES ($1, $2, $3, NOW(), NOW()) RETURNING id, title, content, author_id, published, views, created_at, updated_at`,
-		articleTitle, articleContent, user.ID).Scan(
-		&article.ID,
-		&article.Title,
-		&article.Content,
-		&article.AuthorID,
-		&article.Published,
-		&article.Views,
-		&article.CreatedAt,
-		&article.UpdatedAt,
-	)
-
-	if err != nil {
-		return nil, nil, fmt.Errorf("create article: %w", err)
-	}
-
-	if err = tx.Commit(); err != nil {
-		return nil, nil, fmt.Errorf("commit: %w", err)
-	}
-
-	return &user, &article, nil
-}
-
-type ArticleWithAuthor struct {
-	Article     *models.Article
-	AuthorName  string
-	AuthorEmail string
-}
-
-// Используй JOIN
-func (r *ArticleRepository) GetArticleWithAuthor(ctx context.Context, id int) (*ArticleWithAuthor, error) {
-	query := ` SELECT 	
-			articles.id, 
-			articles.title, 
-			articles.content, 
-			articles.author_id,
-			articles.published,
-			articles.views,
-			articles.created_at,
-			articles.updated_at,
-			users.name,
-			users.email
-	      FROM articles JOIN users ON articles.author_id = users.id
-	      WHERE articles.id = $1`
-
-	var result ArticleWithAuthor
-	result.Article = &models.Article{}
-
-	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&result.Article.ID,
-		&result.Article.Title,
-		&result.Article.Content,
-		&result.Article.AuthorID,
-		&result.Article.Published,
-		&result.Article.Views,
-		&result.Article.CreatedAt,
-		&result.Article.UpdatedAt,
-		&result.AuthorName,
-		&result.AuthorEmail,
-	)
-
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("article not found")
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to get article with author: %w", err)
-	}
-
-	return &result, nil
-
-}
+// 	return &user, &article, nil
+// }
