@@ -199,5 +199,14 @@ func main() {
 	publishedArticles, _ = articleRepo.GetPublished(ctx)
 	fmt.Printf("  - Published articles: %d\n", len(publishedArticles))
 
+	articleWithAuthor, err := articleRepo.GetArticleWithAuthor(ctx, 43)
+	if err != nil {
+		log.Fatalf("Failed: %v", err)
+	}
+
+	fmt.Printf("Title: %s\n", articleWithAuthor.Article.Title)
+	fmt.Printf("Author: %s (%s)\n", articleWithAuthor.AuthorName, articleWithAuthor.AuthorEmail)
+	fmt.Printf("Views: %d\n", articleWithAuthor.Article.Views)
+
 	fmt.Println("\n🎉 All operations completed successfully!")
 }

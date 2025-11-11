@@ -328,3 +328,52 @@ func (r *ArticleRepository) CreateArticleWithAuthor(
 
 	return &user, &article, nil
 }
+
+type ArticleWithAuthor struct {
+	Article     *models.Article
+	AuthorName  string
+	AuthorEmail string
+}
+
+// Используй JOIN
+func (r *ArticleRepository) GetArticleWithAuthor(ctx context.Context, id int) (*ArticleWithAuthor, error) {
+	query := ` SELECT 	
+			articles.id, 
+			articles.title, 
+			articles.content, 
+			articles.author_id,
+			articles.published,
+			articles.views,
+			articles.created_at,
+			articles.updated_at,
+			users.name,
+			users.email
+	      FROM articles JOIN users ON articles.author_id = users.id
+	      WHERE articles.id = $1`
+
+	var result ArticleWithAuthor
+	result.Article = &models.Article{}
+
+	err := r.db.QueryRowContext(ctx, query, id).Scan(
+		&result.Article.ID,
+		&result.Article.Title,
+		&result.Article.Content,
+		&result.Article.AuthorID,
+		&result.Article.Published,
+		&result.Article.Views,
+		&result.Article.CreatedAt,
+		&result.Article.UpdatedAt,
+		&result.AuthorName,
+		&result.AuthorEmail,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("article not found")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get article with author: %w", err)
+	}
+
+	return &result, nil
+
+}
