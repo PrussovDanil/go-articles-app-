@@ -28,8 +28,8 @@ func (Comment) TableName() string {
 
 func (a *Comment) BeforeCreate(tx *gorm.DB) error {
 
-	if len(a.Content) <= 3 {
-		return fmt.Errorf("content must be at least 10 characters")
+	if len(a.Content) < 3 {
+		return fmt.Errorf("content must be at least 3 characters")
 	}
 
 	return nil

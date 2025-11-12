@@ -67,7 +67,7 @@ func (r *ArticleRepository) GetPublished(ctx context.Context) ([]models.Article,
 	var articles []models.Article
 
 	result := r.db.WithContext(ctx).
-		Where("publish = ?", true).
+		Where("published = ?", true).
 		Preload("Author").
 		Order("created_at DESC").
 		Find(&articles)
@@ -82,7 +82,7 @@ func (r *ArticleRepository) GetPublishedWithComments(ctx context.Context) ([]mod
 	var articles []models.Article
 
 	result := r.db.WithContext(ctx).
-		Where("publish = ?", true).
+		Where("published = ?", true).
 		Preload("Author").
 		Preload("Comment").
 		Order("created_at DESC").
@@ -125,7 +125,7 @@ func (r *ArticleRepository) Delete(ctx context.Context, id int) error {
 func (r *ArticleRepository) Publish(ctx context.Context, id int) error {
 	result := r.db.WithContext(ctx).
 		Model(&models.Article{}).
-		Where("id = ? AND published = &", id, false).
+		Where("id = ? AND published = ?", id, false).
 		Update("published", true)
 
 	if result.Error != nil {
@@ -166,7 +166,7 @@ func (r *ArticleRepository) GetByCategoryID(ctx context.Context, categoryID uint
 func (r *ArticleRepository) SearchByTitle(ctx context.Context, query string) ([]models.Article, error) {
 	var articles []models.Article
 
-	result := r.db.WithContext(ctx).Where("title = ?", query).Order("created_at DESC").Find(&articles)
+	result := r.db.WithContext(ctx).Where("title ILIKE ?", "%"+query+"%").Order("created_at DESC").Find(&articles)
 
 	if result.Error != nil {
 		return nil, fmt.Errorf("failed to get articles by title: %w", result.Error)
@@ -190,7 +190,7 @@ func (r *ArticleRepository) GetMostViewed(ctx context.Context, limit int) ([]mod
 func (r *ArticleRepository) PublishArticleWithNotifications(ctx context.Context, articleID uint) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		result := tx.Model(&models.Article{}).
-			Where("id = ? AND published", articleID, true).
+			Where("id = ? AND published = ?", articleID, true).
 			Update("published", true)
 
 		if result.Error != nil {
@@ -208,7 +208,7 @@ func (r *ArticleRepository) PublishArticleWithNotifications(ctx context.Context,
 		}
 
 		err := tx.Model(&models.Comment{}).Select("DISTINCT  comments.user_id, users.name, users.email ").
-			Joins("JOIN users ON user.id = comments.user_id").
+			Joins("JOIN users ON users.id = comments.user_id").
 			Where("comments.article_id = ?", articleID).
 			Scan(&commentators).Error
 

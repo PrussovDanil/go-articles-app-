@@ -23,7 +23,7 @@ func (r *CommentRepository) Create(ctx context.Context, comment *models.Comment)
 
 func (r *CommentRepository) GetByArticleID(ctx context.Context, articleID uint) ([]models.Comment, error) {
 	var comments []models.Comment
-	result := r.db.WithContext(ctx).Where("article_id = ?", articleID).Preload("Author").Find(&comments)
+	result := r.db.WithContext(ctx).Where("article_id = ?", articleID).Preload("User").Find(&comments)
 
 	if result.Error != nil {
 		return nil, fmt.Errorf("failed to get comments by article id : %w", result.Error)

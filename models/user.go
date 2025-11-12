@@ -13,8 +13,8 @@ type User struct {
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
-	Articles  []Article      `gorm:"foreignKey:AuthorID constraint:OnDelete:CASCADE" json:"articles,omitempty"`
-	Comments  []Comment      `gorm:"foreignKey:UserID constraint:OnDelete:CASCADE" json:"comments,omitempty"`
+	Articles  []Article      `gorm:"foreignKey:AuthorID;constraint:OnDelete:CASCADE"`
+	Comments  []Comment      `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
 }
 
 func (User) TableName() string {

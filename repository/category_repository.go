@@ -30,10 +30,6 @@ func (r *CategoryRepository) GetAll(ctx context.Context) ([]models.Category, err
 		return nil, fmt.Errorf("failed to delete comments: %w", result.Error)
 	}
 
-	if result.RowsAffected == 0 {
-		return nil, fmt.Errorf("comments not found")
-	}
-
 	return categories, nil
 }
 
@@ -41,12 +37,11 @@ func (r *CategoryRepository) GetBySlug(ctx context.Context, slug string) (*model
 	var category models.Category
 	result := r.db.WithContext(ctx).Where("slug = ?", slug).First(&category)
 
-	if result.Error != nil {
-		return nil, fmt.Errorf("failed to delete comments: %w", result.Error)
+	if result.Error == gorm.ErrRecordNotFound {
+		return nil, fmt.Errorf("category not found")
 	}
-
-	if result.RowsAffected == 0 {
-		return nil, fmt.Errorf("comments not found")
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to get category: %w", result.Error)
 	}
 
 	return &category, nil
