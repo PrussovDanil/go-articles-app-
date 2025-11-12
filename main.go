@@ -50,29 +50,4 @@ func main() {
 	userRepo.Create(ctx, bob)
 	fmt.Printf("✅ Created: %s (ID: %d)\n", bob.Name, bob.ID)
 
-	fmt.Println("\n📰 Creating articles...")
-	article1 := &models.Article{
-		Title:    "Introduction to GORM",
-		Content:  "GORM is a fantastic ORM library for Go...",
-		AuthorID: alice.ID,
-	}
-	articleRepo.Create(ctx, article1)
-	fmt.Printf("✅ Created article: \"%s\" (ID: %d)\n", article1.Title, article1.ID)
-
-	fmt.Println("\n📖 Reading article with author...")
-	foundArticle, _ := articleRepo.GetByID(ctx, article1.ID)
-	fmt.Printf("Article: \"%s\"\n", foundArticle.Title)
-	fmt.Printf("Author: %s (%s)\n", foundArticle.Author.Name, foundArticle.Author.Email)
-
-	fmt.Println("\n👤 User with articles...")
-	var userWithArticles models.User
-	gormDB.Preload("Articles").First(&userWithArticles, alice.ID)
-	fmt.Printf("User: %s\n", userWithArticles.Name)
-	fmt.Printf("Articles: %d\n", len(userWithArticles.Articles))
-	for _, a := range userWithArticles.Articles {
-		fmt.Printf("  - %s\n", a.Title)
-	}
-
-	fmt.Println("\n🎉 GORM demo completed!")
-
 }

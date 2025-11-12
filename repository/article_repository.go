@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"go-articles-app/models"
+	"log"
 
 	"gorm.io/gorm"
 )
@@ -24,13 +25,28 @@ func (r *ArticleRepository) Create(ctx context.Context, article *models.Article)
 func (r *ArticleRepository) GetByID(ctx context.Context, id uint) (*models.Article, error) {
 	var article models.Article
 
-	result := r.db.WithContext(ctx).Preload("Author").First(&article, id)
+	result := r.db.WithContext(ctx).Preload("Author").Preload("Category").First(&article, id)
 
 	if result.Error == gorm.ErrRecordNotFound {
 		return nil, fmt.Errorf("article not found")
 	}
 	if result.Error != nil {
 		return nil, fmt.Errorf("failed to get article: %w", result.Error)
+	}
+
+	return &article, nil
+}
+
+func (r *ArticleRepository) GetBySlug(ctx context.Context, slug string) (*models.Article, error) {
+	var article models.Article
+
+	result := r.db.WithContext(ctx).Where("slug = ?", slug).Preload("Author").Preload("Category").First(&article)
+
+	if result.Error == gorm.ErrRecordNotFound {
+		return nil, fmt.Errorf("article not found")
+	}
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to get article by slug: %w", result.Error)
 	}
 
 	return &article, nil
@@ -58,6 +74,22 @@ func (r *ArticleRepository) GetPublished(ctx context.Context) ([]models.Article,
 
 	if result.Error != nil {
 		return nil, fmt.Errorf("failed to get published articles: %w", result.Error)
+	}
+	return articles, nil
+}
+
+func (r *ArticleRepository) GetPublishedWithComments(ctx context.Context) ([]models.Article, error) {
+	var articles []models.Article
+
+	result := r.db.WithContext(ctx).
+		Where("publish = ?", true).
+		Preload("Author").
+		Preload("Comment").
+		Order("created_at DESC").
+		Find(&articles)
+
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to get published articles with comments: %w", result.Error)
 	}
 	return articles, nil
 }
@@ -120,6 +152,91 @@ func (r *ArticleRepository) IncrementViews(ctx context.Context, id int) error {
 	return nil
 }
 
+func (r *ArticleRepository) GetByCategoryID(ctx context.Context, categoryID uint) ([]models.Article, error) {
+	var articles []models.Article
+
+	result := r.db.WithContext(ctx).Where("category_id = ?", categoryID).Order("created_at DESC").Find(&articles)
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to get articles by category: %w", result.Error)
+	}
+
+	return articles, nil
+}
+
+func (r *ArticleRepository) SearchByTitle(ctx context.Context, query string) ([]models.Article, error) {
+	var articles []models.Article
+
+	result := r.db.WithContext(ctx).Where("title = ?", query).Order("created_at DESC").Find(&articles)
+
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to get articles by title: %w", result.Error)
+	}
+
+	return articles, nil
+}
+
+func (r *ArticleRepository) GetMostViewed(ctx context.Context, limit int) ([]models.Article, error) {
+	var articles []models.Article
+
+	result := r.db.WithContext(ctx).Order("views DESC").Limit(limit).Preload("Author").Find(&articles)
+
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to get most viewed: %w", result.Error)
+	}
+
+	return articles, nil
+}
+
+func (r *ArticleRepository) PublishArticleWithNotifications(ctx context.Context, articleID uint) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&models.Article{}).
+			Where("id = ? AND published", articleID, true).
+			Update("published", true)
+
+		if result.Error != nil {
+			return fmt.Errorf("failed to publish article: %w", result.Error)
+		}
+
+		if result.RowsAffected == 0 {
+			return fmt.Errorf("article not found or already published")
+		}
+
+		var commentators []struct {
+			UserID uint
+			Name   string
+			Email  string
+		}
+
+		err := tx.Model(&models.Comment{}).Select("DISTINCT  comments.user_id, users.name, users.email ").
+			Joins("JOIN users ON user.id = comments.user_id").
+			Where("comments.article_id = ?", articleID).
+			Scan(&commentators).Error
+
+		if err != nil {
+			return fmt.Errorf("failed to get commentators: %w", err)
+		}
+
+		var article models.Article
+		if err := tx.First(&article, articleID).Error; err != nil {
+			return fmt.Errorf("failed to get article: %w", err)
+		}
+
+		for _, commentator := range commentators {
+			log.Printf(
+				"📬 Notification sent to %s (%s): Article '%s' has been published!",
+				commentator.Name,
+				commentator.Email,
+				article.Title,
+			)
+		}
+
+		log.Printf("✅ Article '%s' published with %d notifications sent",
+			article.Title, len(commentators))
+
+		return nil
+	})
+}
+
 // func (r *ArticleRepository) CreateArticleWithAuthor(
 // 	ctx context.Context,
 // 	userName, userEmail, articleTitle, articleContent string,
@@ -148,8 +265,6 @@ func (r *ArticleRepository) IncrementViews(ctx context.Context, id int) error {
 // 			Title:     articleTitle,
 // 			Content:   articleContent,
 // 			AuthorID:  user.ID,
-// 			Published: false,
-// 			Views:     0,
 // 		}
 // 		if err := tx.Create(&article).Error; err != nil {
 // 			return fmt.Errorf("create article: %w", err)
